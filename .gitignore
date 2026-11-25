@@ -1,12 +1,11 @@
-# .NET build artifacts
-bin/
-obj/
-*.user
-.vs/
-
-# app outputs
-*.deobf.lua
-*_final.lua
-LuauGhirda_out/
-
-# engines keep their own vendored deps — nothing to ignore there
+/bin/
+/output/
+/outputs/
+__pycache__/
+*.py[cod]
+*.deobf.luau
+*.trace.luau
+*.protos.json
+*.strings.txt
+.chunk_*.luau
+*.p2d.json

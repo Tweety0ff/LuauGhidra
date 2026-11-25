@@ -1,0 +1,15 @@
+{
+  "name": "luraph-v15.2-deobfuscator",
+  "version": "1.0.0",
+  "description": "Standalone CLI deobfuscator for Luraph v15.2-protected Luau scripts",
+  "main": "deob.js",
+  "bin": {
+    "deob": "./deob.js"
+  },
+  "scripts": {
+    "start": "node deob.js"
+  },
+  "keywords": ["luraph", "v15.2", "deobfuscator", "roblox", "luau"],
+  "license": "MIT",
+  "type": "commonjs"
+}

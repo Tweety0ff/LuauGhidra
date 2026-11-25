@@ -6225,6 +6225,27 @@ if fetchwait then
 end
 
 local body = render()
+if R.sub(status, 1, 12) == "script error" then
+        -- Where did the script die? The Luau traceback only shows the VM's
+        -- one-line chunk, so add the VM functions entered last and the last
+        -- statements the trace recorded (both go into the log via "--   " lines).
+        local ent = E.__ENT
+        if R.type(ent) == "table" and (ent.n or 0) > 0 then
+                local ids = {}
+                for i = R.max(1, ent.n - 11), ent.n do R.insert(ids, R.tostring(ent[i % 64])) end
+                status = status .. "\nlast entered protos (oldest first): " .. R.concat(ids, " ")
+        end
+        local tail = {}
+        for ln in string.gmatch(R.sub(body, -8000), "[^\n]+") do
+                if R.find(ln, "%S") then
+                        tail[#tail + 1] = R.sub(ln, 1, 200)
+                        if #tail > 12 then R.remove(tail, 1) end
+                end
+        end
+        if #tail > 0 then
+                status = status .. "\nlast recorded statements:\n  " .. R.concat(tail, "\n  ")
+        end
+end
 local header = {}
 R.insert(header, "-- run status: " .. R.gsub(status, "\n", "\n--   "))
 R.insert(header, R.fmt("-- %d statements recorded in %.2fs", stmtCount, R.clock() - START))

@@ -16,7 +16,6 @@ This is an evolving reverse-engineering note, not a claim that every listed opco
 ## Decoded opcodes
 
 | Opcode | Handler / pseudocode | Interpretation | Confidence |
-|---:|---|---|---|
 | 0 | `v[n] = v[i] // v[M]` | Floor division of two registers. | High |
 | 1 | `v[i] = v[M] % r` | Register modulo immediate. | High |
 | 2 | `v[M] = p[i]` | Load from auxiliary lookup table `p` using immediate/index `i`. | High |
@@ -64,6 +63,8 @@ This is an evolving reverse-engineering note, not a claim that every listed opco
 | 44 | For each of the three register indices `M[J]`, `i[J]`, and `n[J]`, close the corresponding tracked open-upvalue cell in `a` and save its current register value. | Close upvalues associated with three VM register slots. | High for the state transition |
 | 45 | `v[M] = #v[n]` | Apply the length operator to the value in register `v[n]` and store the result in `v[M]`. | High |
 | 46 | `v[M] = n * v[i]` | Multiply immediate `n` by register `v[i]` and store the result in `v[M]`. | High |
+| 47 | `v[M] = (i * v[n]) mod 2^32` | Low 32 bits of immediate × register multiplication. | High |
+| 48 | `v[M] = v[n] - v[i]` | Register subtraction. | High |
 | 49 | `v[M] = v[i][n]` | Read key `n` from table/value in register `v[i]` and store the result in `v[M]`. | High |
 | 50 | `v[i] = e[r][L]` | Read `e[r][L]` from the nested environment table and store it in `v[i]`. | High for the access |
 | 51 | `v[M], v[M+1] = i, r` | Load two immediate operands into consecutive VM registers starting at `M`. | High |
@@ -71,9 +72,13 @@ This is an evolving reverse-engineering note, not a claim that every listed opco
 | 53 | `v[M] = _(v[M](Q(v, M+1, M+i)))` | Call the function in register `M` with `i` arguments from the following registers and store the first return value back in `v[M]`. | High |
 | 54 | `v[M] = u(v[n], U)` | Bitwise AND of register `v[n]` with immediate operand `U` (same normalization/bitwise helper as opcode 7). | High, based on the established helper use |
 | 55 | `v[M] = _(v[n](v[i]))` | Call the function in `v[n]` with one argument from `v[i]`; pass the call result through helper `_` and store that helper's result in `v[M]`. The exact transformation performed by `_` is not inferred from this line alone. | High for call/argument/data flow; unresolved for `_` |
+| 56 | `v[n] = (v[i] * v[M]) mod 2^32` | Low 32 bits of register × register multiplication. | High |
+| 57 | No operation. | NOP. | High |
+| 58 | `J = v[n]` | Unconditional jump to the address held in a register. | High |
 | 59 | `v[M][r] = U` | Write immediate `U` into the table held in register `v[M]`, using immediate key `r`. | High |
 | 60 | `h = k[i]; h[5][h[4]][v[M]] = v[n]` | Resolve the captured/upvalue cell referenced by `k[i]`, then write `v[n]` into the table held by that captured value at key `v[M]`. This mutates the referenced table; it does not replace the upvalue cell itself. | High for the dereference and write |
 | 61 | Close tracked open upvalues in `a`, snapshot pending captured register ranges in `B`, then `return v[i]`. | VM return of the value in register `v[i]`, preceded by upvalue/capture cleanup. The precise abstraction represented by `B` remains provisional. | High for the return and cleanup effects |
+| 62 | `v[M] = i` | Load immediate into a VM register. | High |
 | 63 | `v[M] = A(U, v[n])` | Call helper `A` with immediate `U` and register value `v[n]`; store its result in `v[M]`. The helper's semantic operation is not established by this handler alone. | High for data flow; unresolved for `A` |
 | 64 | `W = v[i]` | Copy register `v[i]` into the interpreter-local temporary/state variable `W`; this does not write to a VM register. | High |
 | 65 | `my = M; J = n + 1; break` | Store operand `M` in interpreter-local `my`, set the next PC to `n+1`, and exit the current enclosing loop. The broader meaning of `my` depends on the loop's caller/context. | High for the visible effects; Medium for the higher-level purpose |
@@ -81,6 +86,7 @@ This is an evolving reverse-engineering note, not a claim that every listed opco
 | 67 | `v[n] = (v[M] ~= U)` | Compare register `v[M]` with immediate `U` for inequality; store the boolean in `v[n]`. | High |
 | 68 | `v[M] = _(v[i]())` | Call the function in `v[i]` with no arguments; pass the call result through helper `_` and store that helper's result in `v[M]`. The exact transformation performed by `_` is not inferred from this line alone. | High for call/data flow; unresolved for `_` |
 | 69 | Close tracked open upvalues in `a`, snapshot pending captured register ranges in `B`, then `return L, r`. | VM return of the two immediate values `L[J]` and `r[J]`, preceded by upvalue/capture cleanup. The precise abstraction represented by `B` remains provisional. | High for the return and cleanup effects |
+| 70 | Loads `H`, `S`, `n`, and `i` into four consecutive registers starting at `n[J]`; advances `J` by 3. | Special VM environment/helper setup instruction. | High |
 | 71 | `v[M] = r .. v[i]` | Concatenate immediate operand `r` on the left with register value `v[i]` on the right; store the result in `v[M]`. | High |
 | 72 | `v[n] = v[M] + i` | Add immediate operand `i` to register `v[M]`; store the result in `v[n]`. | High |
 | 73 | Save the current frame in `O`; create `R = K(b)`; call `R(p, v[h], v[h+1], v[h+2])`; then set `G=n`, `J=M`, and `q=R`. | Frame/context transition involving helper-created callable `R`; saves prior interpreter state, invokes the new callable with `p` and three register values, then switches interpreter state fields. The exact role of `K(b)` and the new context is not established here. | High for the visible sequence; Medium for the semantic label |
@@ -105,34 +111,52 @@ This is an evolving reverse-engineering note, not a claim that every listed opco
 | 92 | `J = (v[i] <= r) and J or M` | Keep the current PC when `v[i] <= r`; otherwise branch to immediate target `M` (branch condition `v[i] > r`). | High |
 | 93 | `J = v[M]` | Unconditional jump to the address held in register `v[M]`. | High |
 | 94 | `v[M] = A(v[n], i)` | Call helper `A` with register value `v[n]` and immediate operand `i`; store its result in `v[M]`. The semantic operation performed by `A` is not established by this handler alone. | High for data flow; unresolved for `A` |
+| 95 | `J = v[M] and i or n` | Truthiness branch based on register `v[M]`. | High |
 | 96 | `for x = M, i do v[x] = nil end` | Clear every VM register in the inclusive range from `M[J]` through `i[J]` (the loop performs no writes if the start exceeds the end). | High |
 | 97 | `h = i; v[h], v[h+1] = M, v[n]` | Load immediate operand `M` into register `i`, and copy register `v[n]` into the following register `i+1`. | High |
 | 98 | `v[i] = (v[M] == r)` | Compare register `v[M]` with immediate operand `r`; store the boolean equality result in `v[i]`. | High |
+| 99 | `v[M], v[M+1] = v[n], v[i]` | Copy two registers into consecutive destination registers (parallel assignment; not a swap). | High |
 | 100 | `v[M] = v[n] / v[i]` | Divide register `v[n]` by register `v[i]`; store the result in `v[M]`. | High |
 | 101 | `v[n] = (v[i] < M)` | Compare register `v[i]` with immediate operand `M`; store the boolean less-than result in `v[n]`. | High |
 | 102 | Reads/advances an encoded byte buffer in `H[4]`/`H[7]`, decodes a variable-length span, transforms the corresponding bytes in place using helpers `j`, `D`, `x`, `Y`, and `P`, then sets `i[J]=235`, `M[J]=80`, `n[J]=145`, and `S[J]=57`. | In-place byte-buffer decode/transform followed by rewriting the current instruction slot to opcode 57 (NOP) with replacement operands. The exact transformation algorithm is unresolved; do not assign it a cipher name without resolving the helpers. | High for buffer mutation and instruction rewrite; unresolved for algorithm |
 | 103 | `h = i; local ok, value = q(); if ok then v[h] = value; J = n else J = M end; R, d = ok, value` | Call helper `q()` and branch on its first result. If truthy, store the second result in register `i` and jump to `n`; otherwise jump to `M`. Also copy the returned pair into interpreter state `R,d`. The higher-level purpose of `q()` is not established here. | High for control/data flow; unresolved for `q`'s role |
+| 104 | `v[M] = v[i]()` | Call function in `v[i]` without arguments; store the first return value in `v[M]`. | High |
 | 105 | `J = (L ~= v[n]) and i or J` | Branch to immediate target `i` when register `v[n]` differs from immediate `L`; otherwise keep the current PC. | High |
+| 106 | `v[M](v[n])` | Call function in `v[M]` with one register argument; discard results. | High |
 | 107 | `v[n] = (v[M] < v[i])` | Compare registers `v[M]` and `v[i]` using less-than; store the boolean result in `v[n]`. | High |
 | 108 | `h = k[n]; h[5][h[4]] = L` | Resolve the capture/upvalue cell referenced by `k[n]` and assign immediate value `L` to that cell's stored value. This is a write to the captured variable itself, unlike opcode 60 which indexes into a table held by the captured value. | High for the observed dereference/write; Medium for the upvalue label |
 | 109 | `v[n] = l(v[M])` | Apply helper `l` to register value `v[M]` and store the result in `v[n]`. The meaning of `l` is unresolved from this handler alone. | High for data flow; unresolved for `l` |
 | 110 | `J = (i < v[M]) and J or n` | Keep the current PC when immediate `i` is less than register `v[M]`; otherwise branch to `n` (branch condition `i >= v[M]`). | High |
 | 111 | `v[i] = v[n] ^ M` | Raise register value `v[n]` to immediate exponent `M`; store the result in `v[i]`. In Luau, `^` is exponentiation, not bitwise XOR. | High |
 | 112 | `v[M], v[i] = v[n]()` | Call function in register `v[n]` with no arguments and assign its first two return values to registers `M` and `i`, respectively. | High |
-| 47 | `v[M] = (i * v[n]) mod 2^32` | Low 32 bits of immediate × register multiplication. | High |
-| 48 | `v[M] = v[n] - v[i]` | Register subtraction. | High |
-| 56 | `v[n] = (v[i] * v[M]) mod 2^32` | Low 32 bits of register × register multiplication. | High |
-| 57 | No operation. | NOP. | High |
-| 58 | `J = v[n]` | Unconditional jump to the address held in a register. | High |
-| 62 | `v[M] = i` | Load immediate into a VM register. | High |
-| 70 | Loads `H`, `S`, `n`, and `i` into four consecutive registers starting at `n[J]`; advances `J` by 3. | Special VM environment/helper setup instruction. | High |
-| 95 | `J = v[M] and i or n` | Truthiness branch based on register `v[M]`. | High |
-| 99 | `v[M], v[M+1] = v[n], v[i]` | Copy two registers into consecutive destination registers (parallel assignment; not a swap). | High |
-| 104 | `v[M] = v[i]()` | Call function in `v[i]` without arguments; store the first return value in `v[M]`. | High |
-| 106 | `v[M](v[n])` | Call function in `v[M]` with one register argument; discard results. | High |
+| 113 | `v[M] = X(v[n], i)` | Apply helper `X` to register value `v[n]` and immediate operand `i`; store the result in `v[M]`. The helper's exact operation is unresolved from this handler alone. | High for data flow; unresolved for `X` |
+| 114 | `v[n](v[M], Q(v[i], 1, v[i].n))` | Call function in `v[n]` with register `v[M]` as the first argument, followed by all arguments unpacked from the packed table in `v[i]`; discard the call's results. | High |
+| 115 | Reads/advances the encoded byte buffer in `H[4]`/`H[7]`, decodes a variable-length span, applies helper-based byte transformations to the selected range, then sets `i[J]=86`, `M[J]=11`, `n[J]=191`, and `S[J]=57`. | In-place byte-buffer transform/decode followed by rewriting the current instruction slot to opcode 57 (NOP) with replacement operands. The precise algorithm remains unknown because helpers `j`, `D`, `x`, `Y`, and `P` have not been resolved. | High for mutation and instruction rewrite; unresolved for algorithm |
+| 116 | Close tracked open upvalues in `a`, snapshot/copy pending captured register ranges tracked in `B`, then `return v[M[J]], Q(v[i[J]], 1, v[i[J]].n)`. | Return the value in register `v[M]` followed by all values in the packed list held in `v[i]`, after upvalue/capture cleanup. The final `Q(...)` expression expands to multiple return values. | High |
+| 117 | `v[n] = not v[M]` | Apply logical NOT to register `v[M]` and store the boolean result in `v[n]`. | High |
+| 118 | `F = _(v[h](Q(v, h+1, h+R))); t(F, 1, d, h, v)` where `h=M`, `R=i`, `d=n` | Call function in register `h` with the next `R` registers as arguments, package its results through helper `_`, and copy `d` results back into registers starting at `h`. This is a variable-argument, fixed-result-count call. | High for argument/result flow; unresolved only for `_` packaging details |
+| 119 | `v[M] = (v[i] < r)` | Compare register `v[i]` with immediate operand `r` using less-than; store the boolean result in `v[M]`. | High |
+| 120 | `v[i] = (v[M] ~= n)` | Compare register `v[M]` with immediate operand `n` for inequality; store the boolean result in `v[i]`. | High |
+| 121 | `v[M] = j(r, v[i])` | Apply helper `j` to immediate operand `r` and register value `v[i]`; store its result in `v[M]`. The helper's exact operation is unresolved. | High for data flow; unresolved for `j` |
+| 122 | Close tracked open upvalues in `a`, snapshot/copy pending captured register ranges tracked in `B`, then `return U, v[M]`. | Return immediate value `U[J]` followed by register value `v[M[J]]`, after upvalue/capture cleanup. | High |
+| 123 | `local ok, a, b = q(); if ok then v[i], v[i+1] = a, b; J=n else J=M end; R,d,z=ok,a,b` | Call helper `q()` for a three-value result. If the first value is truthy, store the next two values in consecutive registers beginning at `i` and jump to `n`; otherwise jump to `M`. Also preserve the returned triple in interpreter state `R,d,z`. | High for control/data flow; unresolved for `q`'s role |
+| 124 | Derives a rolling decode value `R` from `M[J]` and state `W`, splits the packed value into 7-bit fields, merges those fields into `S[J]`, `n[J]`, `i[J]`, and `M[J]`, then decrements `J`. | Decode/rewrite the current instruction's opcode and three operands using state-dependent bit fields; `J=J-1` causes the rewritten instruction slot to be processed again by the dispatch loop. Helpers `j`, `u`, `C`, and `X` remain unresolved, so this is a structural description rather than a named cipher/encoding. | High for instruction-field rewrite; medium for the precise decode interpretation |
+| 125 | `J = (v[i] ~= v[M]) and n or J` | Branch to immediate target `n` when registers `v[i]` and `v[M]` differ; otherwise keep the current PC. | High |
+| 126 | `v[M] = A(i, v[n])` | Call helper `A` with immediate operand `i` and register value `v[n]`; store the result in `v[M]`. The semantic operation performed by `A` is unresolved. | High for data flow; unresolved for `A` |
+| 127 | `v[i] = v[n] * v[M]` | Multiply register values `v[n]` and `v[M]` and store the ordinary numeric product in `v[i]`. Unlike opcodes 56 and 134, this handler does not explicitly reduce the product modulo 2^32. | High |
+| 128 | Close tracked open upvalues in `a`, snapshot/copy pending captured register ranges tracked in `B`, then `return v[M](v[n])`. | Tail-call function in register `v[M]` with one register argument `v[n]` and return all results, after upvalue/capture cleanup. | High |
+| 129 | Close tracked open upvalues in `a`, snapshot/copy pending captured register ranges tracked in `B`, then `return v[i](r, L)`. | Tail-call function in register `v[i]` with two immediate arguments `r[J]` and `L[J]`, returning all results after upvalue/capture cleanup. | High |
+| 130 | `v[M] = j(U, r)` | Apply helper `j` to the two immediate operands `U` and `r`; store its result in `v[M]`. The helper's exact operation is unresolved. | High for data flow; unresolved for `j` |
+| 131 | `v[i] = M` | Store the entire operand-array table `M` itself in VM register `v[i[J]]`, not the scalar operand `M[J]`. | High |
+| 132 | Seed rolling state `R` from `M[J]` and `W`; for each of the next `n[J]` instruction slots, update `R` with helper-based recurrence and merge 7-bit fields from `R` into `i[h]`, `M[h]`, `n[h]`, and `S[h]`; finally set `S[J]=57`. | Decode/rewrite a run of following instruction records using a rolling state derived from `W`; the current decoder instruction becomes NOP after expansion. The exact bitwise recurrence is not named because helpers `j`, `u`, `C`, and `X` remain unresolved. | High for loop bounds, state flow and instruction-array writes; unresolved for recurrence semantics |
+| 133 | `h=M; v[h], v[h+1] = i, n` | Load two immediate operands `i[J]` and `n[J]` into consecutive VM registers starting at `M[J]`. | High |
+| 134 | `v[i] = (v[n] * v[M]) mod 2^32` | Multiply register values `v[n]` and `v[M]`, retaining the low 32 bits, then store in `v[i]`. The handler implements the product using 16-bit halves. | High |
+| 135 | `v[i] = v[n] .. v[M]` | Concatenate register values `v[n]` and `v[M]` in that order; store the result in `v[i]`. | High |
 | 136 | `J = M` | Unconditional jump to immediate target. | High |
+| 137 | `h=k[M]; v[n] = h[5][h[4]]` | Resolve the captured/upvalue cell referenced by `k[M]` and load its current value into register `v[n]`. This is the read counterpart to the captured-cell write in opcode 108. | High for the dereference and load; Medium for the upvalue label |
+| 138 | `k[i][r] = M` | Write immediate value `M[J]` into auxiliary table `k[i[J]]` at immediate key `r[J]`. The precise higher-level role of this `k` entry is not established by this handler alone. | High for the write; unresolved for the role of `k` |
 | 187 | `k[i][v[n]] = v[M]` | Write register value `v[M]` into auxiliary table `k[i]` at key `v[n]`. | High |
-
+|---:|---|---|---|
 ## Notes
 
 - Opcode 6 copies **from** the vararg list **into** the VM register array.

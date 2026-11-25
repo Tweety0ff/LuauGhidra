@@ -11,7 +11,7 @@ Names such as `v`, `S`, `i`, `M`, `n`, `U`, and `J` are VM internals:
 - `i`, `M`, `n`, `U`, `L`, `r`: parallel operand/immediate arrays; the handler determines which role each field has
 - `e`, `p`, `k`, `W`, `V`, `O`: auxiliary VM state/tables
 
-This is an evolving reverse-engineering note, not a claim that every listed opcode occurs in the payload. The dispatcher scanner reports **108 distinct handler-body groups**; several opcode numbers can resolve to the same body. The inventory generator groups those aliases by source location so the remaining count is measured correctly.
+This is an evolving reverse-engineering note, not a claim that every listed opcode occurs in the payload. The dispatcher scanner previously reported **108 source-location groups**, but that structural count must not be confused with the number of opcode values used at runtime. The resolver and inventory generator have since been corrected to walk past local setup statements and to keep mixed mapped/unmapped groups unresolved. Regenerate the pending inventory after pulling the latest branch revision; older reports may incorrectly label unrelated opcode values as aliases.
 
 ## Decoded opcodes
 

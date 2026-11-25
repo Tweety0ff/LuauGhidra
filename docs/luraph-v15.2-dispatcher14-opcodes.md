@@ -44,6 +44,31 @@ This is an evolving reverse-engineering note, not a claim that every listed opco
 | 24 | `J = v[n] and i or M` | Truthiness branch: jump to `i` if `v[n]` is truthy, otherwise to `M`. | High |
 | 25 | `v[i]()` | Call function in `v[i]` without arguments; discard results. | High |
 | 26 | Unpacks `M` encoded instruction words into `i`, `M`, `n`, and `S`; sets `S[J] = 57`. | Runtime instruction-stream expansion/decode. The current instruction becomes NOP after expansion. | High |
+| 27 | `J = (v[M] < i) and J or n` | Keep the current PC when `v[M] < i`; otherwise branch to `n` (equivalent to taking the branch when `v[M] >= i`). | High |
+| 28 | `v[i] = v[M] % v[n]` | Remainder of two VM register values. | High |
+| 29 | `e[U][r] = L` | Write immediate value `L` into nested environment table `e[U]` at immediate key `r`. | High for the write; Medium for the role of `e` |
+| 30 | Multi-slot sequence: load `R = v[n]`, set `v[h+1] = R` and `v[h] = R[U]`, populate argument registers from the next three instruction slots, call `v[h]` with `R` arguments, copy `d` results back starting at `h`, then `J += 4`. | Fused table-method lookup + argument setup + multi-result call. It consumes five instruction slots (`J` through `J+4`); retain this as a compound handler, not a simple single-op call. | High for the observed effects; Medium for the higher-level mnemonic |
+| 31 | `v[M] = v[i] * n` | Multiply register `v[i]` by immediate `n` and store in `v[M]`. | High |
+| 32 | `J = (v[i] < v[M]) and J or n` | Keep the current PC when `v[i] < v[M]`; otherwise branch to `n` (branch condition `v[i] >= v[M]`). | High |
+| 33 | `v[n] = n` | Store the entire operand-array table `n` in register `v[n[J]]`; this is not the scalar operand `n[J]`. | High |
+| 34 | `v[i] = -v[M]` | Unary numeric negation of register `v[M]`. | High |
+| 35 | Close the tracked open-upvalue cell associated with register index `i[J]`; save its current value from `v[i[J]]` and remove the entry from the open-upvalue map `a`. | Close one open upvalue for a VM register. | High for the state transition |
+| 36 | `v[i] = e[L]` | Load an entry from the environment table `e` at immediate key `L` into `v[i]`. | High |
+| 37 | `v[i](Q(v[n], 1, v[n].n))` | Call the function in `v[i]` with all values in the packed argument list held in `v[n]`; discard the call's results. | High for the call shape |
+| 38 | Close all tracked open upvalues in `a`; snapshot each pending register range tracked in `B` into a fresh table and update its cell; then `return U`. | VM return with upvalue/range cleanup and one explicit return value `U[J]`. The exact higher-level meaning of `B` remains provisional. | High for the observed effects; Medium for `B`'s role |
+| 39 | `J = (U < v[n]) and J or M` | Keep the current PC when immediate `U` is less than `v[n]`; otherwise branch to `M` (branch condition `U >= v[n]`). | High |
+| 40 | `v[M] = (n * U) mod 2^32` | Low 32 bits of multiplication of the two immediate operands `n` and `U`. | High |
+| 41 | Builds a capture list from triples in descriptor `r`: capture type 0 reads `v[hy]`, type 1 reuses/creates an open-upvalue cell, type 2 reuses/creates a closed-upvalue cell, and type 3 reads `k[hy]`; passes the assembled list to the callable in `r[J]` and stores its result in `v[M[J]]`. | Closure/prototype construction with explicit upvalue capture descriptors. | High for descriptor handling and call/result; Medium for the precise type names |
+| 42 | Close all tracked open upvalues in `a`, snapshot the pending register ranges tracked in `B`, then `return`. | VM return with cleanup and no explicit return value. The exact higher-level meaning of `B` remains provisional. | High for the observed effects; Medium for `B`'s role |
+| 43 | `v[M] = A(v[n], U)` | Apply helper `A` to register `v[n]` and immediate `U`; store its result in `v[M]`. The operator/semantic meaning of `A` is not established from this handler alone. | High for data flow; Unknown for helper meaning |
+| 44 | For each of the three register indices `M[J]`, `i[J]`, and `n[J]`, close the corresponding tracked open-upvalue cell in `a` and save its current register value. | Close upvalues associated with three VM register slots. | High for the state transition |
+| 45 | `v[M] = #v[n]` | Apply the length operator to the value in register `v[n]` and store the result in `v[M]`. | High |
+| 46 | `v[M] = n * v[i]` | Multiply immediate `n` by register `v[i]` and store the result in `v[M]`. | High |
+| 49 | `v[M] = v[i][n]` | Read key `n` from table/value in register `v[i]` and store the result in `v[M]`. | High |
+| 50 | `v[i] = e[r][L]` | Read `e[r][L]` from the nested environment table and store it in `v[i]`. | High for the access |
+| 51 | `v[M], v[M+1] = i, r` | Load two immediate operands into consecutive VM registers starting at `M`. | High |
+| 52 | `q, I, w, G = O[5], O[7], O[6], O[9]; O = O[8]` | Restore interpreter state fields from the saved frame and pop the frame chain. | High for the state restoration; Medium for frame naming |
+| 53 | `v[M] = _(v[M](Q(v, M+1, M+i)))` | Call the function in register `M` with `i` arguments from the following registers and store the first return value back in `v[M]`. | High |
 | 47 | `v[M] = (i * v[n]) mod 2^32` | Low 32 bits of immediate × register multiplication. | High |
 | 48 | `v[M] = v[n] - v[i]` | Register subtraction. | High |
 | 56 | `v[n] = (v[i] * v[M]) mod 2^32` | Low 32 bits of register × register multiplication. | High |

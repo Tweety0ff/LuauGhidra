@@ -32,8 +32,18 @@ function header(inputPath, notes = []) {
 }
 
 function statusLine(body) {
-  const first = (body || '').split('\n')[0] || '';
+  // First line is "-- run status: ..."; a script error carries its Luau
+  // traceback on the following "--   ..." lines. Print them (bounded) so the
+  // failing VM frame is visible in the log, not just the error message.
+  const lines = (body || '').split('\n');
+  const first = lines[0] || '';
   process.stderr.write('[*] ' + first.replace(/^--\s*/, '') + '\n');
+  let n = 0;
+  for (let i = 1; i < lines.length && n < 30; i++) {
+    if (!/^--   /.test(lines[i])) break;
+    process.stderr.write('[*]   ' + lines[i].replace(/^--   /, '').slice(0, 300) + '\n');
+    n++;
+  }
 }
 
 module.exports = { stmtCount, takeLine, takeStrings, header, statusLine };

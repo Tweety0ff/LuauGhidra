@@ -43,5 +43,11 @@ def render(text, args, preamble=True):
     return fold.strip_markers(text)
 
 def status_line(body):
-    status = body.splitlines()[0] if body else ""
-    print("[*] " + status.lstrip("- "), file=sys.stderr)
+    # First line is "-- run status: ..."; a script error carries its Luau
+    # traceback on the following "--   ..." lines. Print them (bounded).
+    lines = body.splitlines() if body else [""]
+    print("[*] " + lines[0].lstrip("- "), file=sys.stderr)
+    for ln in lines[1:31]:
+        if not ln.startswith("--   "):
+            break
+        print("[*]   " + ln[5:305], file=sys.stderr)

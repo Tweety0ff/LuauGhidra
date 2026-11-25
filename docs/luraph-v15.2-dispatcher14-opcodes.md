@@ -275,6 +275,8 @@ This is an evolving reverse-engineering note, not a claim that every listed opco
 | 255 | Same handler body as opcode 215. | Alias of opcode 215: closes open upvalues, snapshots captured ranges, then returns the consecutive register range beginning at `v[M[J]]` with count `n[J]`. | High — identical handler body |
 ## Notes
 
+- Opcodes 215–255 all resolve to the same handler body in dispatcher #14: after upvalue/captured-range cleanup, return `n[J]` values beginning at register `M[J]`. These 41 numeric opcode IDs are aliases, not distinct operations.
+
 - Opcode 6 copies **from** the vararg list **into** the VM register array.
 - Opcode 17 is the inverse-looking half of opcode 64 (`W = v[i]`): opcode 64 reads a register into the internal temporary `W`, while opcode 17 writes `W` back to a register. This does not, by itself, establish what `W` represents at a higher level.
 - Opcode 18 and opcode 25 are distinct: 18 is a tail-call that returns the callee's results; 25 is a plain no-argument call whose results are discarded.

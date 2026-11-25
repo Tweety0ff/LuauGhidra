@@ -53,7 +53,10 @@ class Dump:
         self.raw = d
         self.tables = {}
         self.lfs = {}
-        self.shared = {}        
+        self.shared = {}
+        # Unresolved functions fetched from the VM object: retain call-site
+        # argument shapes so a missing runtime implementation can be traced.
+        self.shared_calls = {}
         self.buf_loc = {}       
         self._load_tables(d["tables"])
 
@@ -387,6 +390,24 @@ class SharedFn(Global):
     def __init__(self, fn, n):
         Global.__init__(self, "luraph_runtime%d" % n)
         self.fn = fn
+
+def _shared_value_brief(v):
+    """Short, bounded description of an unresolved VM-function argument."""
+    if isinstance(v, Buf):
+        data = bytes(v.data)
+        return "Buf(%dB, head=%s)" % (len(data), data[:24].hex())
+    if isinstance(v, LTable):
+        keys = list(v.h.keys())[:12]
+        return "LTable(tid=%r, keys=%r)" % (getattr(v, "tid", None), keys)
+    if isinstance(v, FrameArg):
+        return "FrameArg(reg=%r)" % v.reg
+    if isinstance(v, RegFile):
+        return "RegFile"
+    if isinstance(v, bytes):
+        return "bytes(%dB, head=%s)" % (len(v), v[:24].hex())
+    if isinstance(v, (int, float, bool)) or v is None:
+        return repr(v)
+    return "%s(%s)" % (type(v).__name__, repr(v)[:96])
 
 class PlainProto:
     """A plain Lua function (e.g. preserved source) that captures outer locals."""
@@ -1932,6 +1953,15 @@ class ProtoLifter:
                 return self.make_closure(args, target)
             if node is not None:
                 return it.call_lua(LuaFunc(node, Scope()), args)
+            # No AST node and no captured proto table: preserve the exact
+            # identity and a bounded view of the arguments. This is the
+            # information needed to locate/reconstruct VM-object functions.
+            if os.environ.get("DEVIRT_SHARED_DEBUG"):
+                brief = [_shared_value_brief(x) for x in args.items]
+                self.dump.shared_calls.setdefault(fn.lfid, []).append(brief)
+                print("[shared] lfid=%r pf_tid=%r args=%s tail=%s" %
+                      (fn.lfid, fn.pf_tid, brief, args.tail is not None),
+                      file=sys.stderr)
             # No AST node: a closure the trace never instantiated through a
             # hooked maker (e.g. a plain, non-virtualized function kept in the
             # VM's constant pool). Fall through and render the call through
@@ -4680,9 +4710,14 @@ def lift_program(source, protos_path, chunk_paths=(), fetch=None):
         sys.stderr.write("[*] DEVIRT_ALL_FROM=%s: %d extra top-level payload closures lifted\n" % (all_from, extra))
 
     shared = []
-    for n in sorted(prog.dump.shared.values()):
+    for lfid, n in sorted(prog.dump.shared.items(), key=lambda kv: kv[1]):
+        fn = prog.dump.lfs.get(lfid)
+        pf_tid = getattr(fn, "pf_tid", None)
+        node_bound = getattr(fn, "node", None) is not None
         shared += ["-- Luraph runtime function (from the VM object, not part of the script: not lifted).",
                    "-- LPH_ENCFUNC decrypts a function this way: (key, encrypted buffer, ...) -> function.",
+                   "-- dump function id=%r, proto table=%r, AST-bound=%s"
+                   % (lfid, pf_tid, node_bound),
                    "local function luraph_runtime%d(...)" % n,
                    "\terror(\"Luraph runtime function, not devirtualized\")",
                    "end", ""]

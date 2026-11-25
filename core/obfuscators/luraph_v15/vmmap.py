@@ -140,47 +140,70 @@ def eval_cond(cond, var, value):
     return None
 
 def resolve(tree, var, value):
-    """Follow the if-tree for one opcode value and return the handler block."""
+    """Follow opcode-dependent if-tests and return the narrowest safe block.
+
+    Luraph dispatch branches sometimes start with harmless VM-state locals,
+    e.g. `local saved = depth; if opcode >= ... then ...`. The old resolver
+    only examined the first statement in a block, so it stopped at that outer
+    block and incorrectly treated many different opcodes as aliases. Walk
+    statements in order until the first control-flow test; follow it only when
+    it can be decided from the opcode (or a preceding boolean local derived
+    from the opcode). If an unrelated conditional appears first, stop rather
+    than guess.
+    """
     node = tree
     benv = {}
     while True:
         if node["type"] == "AstStatBlock":
-            b = node["body"]
-            if len(b) >= 1 and b[0]["type"] == "AstStatIf" \
-                    and eval_cond(b[0]["condition"], var, value) is not None:
-                node = b[0]
-                continue
-            for i in range(len(b) - 1):
-                st = b[i]
-                nxt = b[i + 1]
-                if st["type"] in ("AstStatLocal", "AstStatAssign") and len(st.get("values") or []) == 1 \
-                        and nxt["type"] == "AstStatIf":
-                    v = _unwrap(st["values"][0])
-                    r = eval_cond(v, var, value)
-                    if r is not None:
+            descended = False
+            for st in node["body"]:
+                if st["type"] in ("AstStatLocal", "AstStatAssign") and len(st.get("values") or []) == 1:
+                    expr = _unwrap(st["values"][0])
+                    result = eval_cond(expr, var, value)
+                    if result is not None:
                         bvar = st["vars"][0]["name"] if st["type"] == "AstStatLocal" else local_name(st["vars"][0])
-                        if bvar and local_name(_unwrap(nxt["condition"])) == bvar:
-                            benv[bvar] = r
-                            node = nxt
-                            break
-            else:
+                        if bvar:
+                            benv[bvar] = result
+                    continue
+                if st["type"] == "AstStatIf":
+                    result = eval_cond(st["condition"], var, value)
+                    if result is None:
+                        cname = local_name(_unwrap(st["condition"]))
+                        if cname in benv:
+                            result = benv[cname]
+                    if result is None:
+                        return node
+                    if result:
+                        node = st["thenbody"]
+                    else:
+                        other = st.get("elsebody")
+                        if other is None:
+                            return None
+                        node = other
+                    descended = True
+                    break
+                # Do not skip an earlier unmodelled control-flow statement:
+                # its outcome may affect which opcode branch executes.
+                if st["type"] in ("AstStatReturn", "AstStatBreak", "AstStatContinue"):
+                    return node
+            if not descended:
                 return node
             continue
         if node["type"] == "AstStatIf":
-            r = eval_cond(node["condition"], var, value)
-            if r is None:
+            result = eval_cond(node["condition"], var, value)
+            if result is None:
                 cname = local_name(_unwrap(node["condition"]))
                 if cname in benv:
-                    r = benv[cname]
-            if r is None:
+                    result = benv[cname]
+            if result is None:
                 return node
-            if r:
+            if result:
                 node = node["thenbody"]
             else:
-                e = node.get("elsebody")
-                if e is None:
+                other = node.get("elsebody")
+                if other is None:
                     return None
-                node = e
+                node = other
             continue
         return node
 

@@ -35,9 +35,12 @@ import vmmap  # noqa: E402
 MAPPED_OPCODES = {
     *range(0, 27),
     *range(27, 47),
-    *range(49, 54),
+    *range(49, 56),
     47, 48,
     56, 57, 58,
+    *range(59, 62),
+    *range(63, 70),
+    *range(71, 84),
     62, 70,
     95, 99,
     104, 106,

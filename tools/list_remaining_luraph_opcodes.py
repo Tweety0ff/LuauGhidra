@@ -29,6 +29,9 @@ import vmmap  # noqa: E402
 # Opcode values whose handler semantics have already been manually traced.
 # If multiple opcode values resolve to the same AST body, the whole group is
 # treated as covered; the generated report shows those aliases explicitly.
+# A source-location group is covered only when EVERY opcode in that group is
+# already mapped. A mixed group is ambiguous and must remain in the pending
+# report; never infer that its unmapped values are aliases from a partial hit.
 MAPPED_OPCODES = {
     *range(0, 27),
     47, 48,
@@ -94,7 +97,7 @@ def main() -> int:
     remaining_groups = []
     for item in groups:
         ops = sorted(item["ops"])
-        if set(ops) & MAPPED_OPCODES:
+        if set(ops).issubset(MAPPED_OPCODES):
             covered_groups.append(item)
         else:
             remaining_groups.append(item)

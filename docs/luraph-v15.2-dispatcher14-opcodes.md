@@ -16,6 +16,7 @@ This is an evolving reverse-engineering note, not a claim that every listed opco
 ## Decoded opcodes
 
 | Opcode | Handler / pseudocode | Interpretation | Confidence |
+|---:|---|---|---|
 | 0 | `v[n] = v[i] // v[M]` | Floor division of two registers. | High |
 | 1 | `v[i] = v[M] % r` | Register modulo immediate. | High |
 | 2 | `v[M] = p[i]` | Load from auxiliary lookup table `p` using immediate/index `i`. | High |
@@ -180,9 +181,32 @@ This is an evolving reverse-engineering note, not a claim that every listed opco
 | 161 | `v[M] = (v[n] <= v[i])` | Compare registers `v[n[J]]` and `v[i[J]]` using less-than-or-equal; store the boolean result in `v[M[J]]`. | High |
 | 162 | `v[n] = k[M][U]` | Read immediate key `U[J]` from auxiliary table `k[M[J]]`; store the value in register `v[n[J]]`. | High for data flow; unresolved for the role of `k` |
 | 163 | `v[i] = r` | Load immediate operand `r[J]` into register `v[i[J]]`. | High |
+| 164 | `v[i] = C(v[M], n)` | Apply helper `C` to register value `v[M[J]]` and operand `n[J]`; store the result in `v[i[J]]`. In the decoder's other arithmetic, `C` is used to extract higher-order bit fields, but its exact general contract is not inferred from this handler alone. | High for data flow; provisional for helper meaning |
+| 165 | `v[M](U, r)` | Call function in register `v[M[J]]` with two immediate arguments, `U[J]` and `r[J]`; discard all return values. | High |
+| 166 | `v[n] = j(v[M], i)` | Apply helper `j` to register value `v[M[J]]` and immediate operand `i[J]`; store the result in `v[n[J]]`. The helper's exact operation is unresolved from this handler alone. | High for data flow; unresolved for `j` |
+| 167 | `k[M][r] = v[i]` | Write register value `v[i[J]]` into auxiliary table `k[M[J]]` at immediate key `r[J]`. | High for the write; unresolved for the role of `k` |
+| 168 | `v[i] = v[n][v[M]]` | Read key `v[M[J]]` from the value in register `v[n[J]]`; store the result in `v[i[J]]`. | High |
+| 169 | Close tracked open upvalues in `a`, snapshot/copy pending captured register ranges in `B`, then `return v[i](v[M], r)`. | Tail-call function in register `v[i[J]]` with register argument `v[M[J]]` followed by immediate argument `r[J]`; return all results after upvalue/capture cleanup. | High for call and cleanup effects |
+| 170 | Close tracked open upvalues in `a`, snapshot/copy pending captured register ranges in `B`, then `return v[M](U)`. | Tail-call function in register `v[M[J]]` with immediate argument `U[J]`; return all results after upvalue/capture cleanup. | High for call and cleanup effects |
+| 171 | `v[i] = v[n] / M` | Divide register value `v[n[J]]` by immediate operand `M[J]`; store the result in `v[i[J]]`. | High |
+| 172 | `h=k[i]; h[5][h[4]][L] = v[n]` | Resolve the captured/upvalue cell referenced by `k[i[J]]`, then write register value `v[n[J]]` into the table held by that captured value at immediate key `L[J]`. This mutates the captured table, not the captured cell's value. | High for dereference and write; Medium for upvalue terminology |
+| 173 | `h=i; z=h+n; f=v[z]; merge v[h+1..z-1] with packed args f; v[h] = _(v[h](Q(f,1,f.n)))` | Treat `v[h+n]` as a packed extra-argument table, prepend the fixed arguments from registers `h+1` through `h+n-1`, update its `.n` count, and call function `v[h]` with the combined argument list. Pass the call result through `_` and store it back in `v[h]`. The assignment to local `d=M[J]` is unused in this handler. | High for argument assembly and call target; unresolved for `_` |
+| 174 | `v[M+1] = v[n]; v[M] = v[n][U]` | Prepare a method call: load receiver `v[n[J]]` into register `M+1`, then load its field `U[J]` (the method) into register `M`. The actual call occurs in a subsequent instruction. | High |
+| 175 | `v[n] = v[i](L)` | Call function in register `v[i[J]]` with immediate argument `L[J]`; store the first return value in `v[n[J]]`. | High |
+| 176 | `d = {n = i-n+1}; copy v[n..i] into d[1..]; v[M] = d` | Pack the inclusive VM-register range from `n[J]` through `i[J]` into a new table, store its element count in field `.n`, and place the table in register `v[M[J]]`. | High |
+| 177 | Close tracked open upvalues in `a`, snapshot/copy pending captured register ranges in `B`, then `return v[i], L`. | Return register value `v[i[J]]` followed by immediate value `L[J]`, after upvalue/capture cleanup. | High |
+| 178 | `J = (r <= v[i]) and J or M` | Keep the current PC when immediate `r[J]` is less than or equal to register `v[i[J]]`; otherwise branch to immediate target `M[J]` (branch condition `r > v[i]`). | High |
+| 179 | `J = (v[i] <= v[M]) and J or n` | Keep the current PC when register `v[i[J]]` is less than or equal to register `v[M[J]]`; otherwise branch to immediate target `n[J]` (branch condition `v[i] > v[M]`). | High |
+| 180 | `v[i] = v[n] + L` | Add immediate operand `L[J]` to register value `v[n[J]]`; store the result in `v[i[J]]`. | High |
+| 181 | `v[n] = j(v[i], L)` | Apply helper `j` to register value `v[i[J]]` and immediate operand `L[J]`; store the result in `v[n[J]]`. The helper's exact operation is unresolved from this handler alone. | High for data flow; unresolved for `j` |
+| 182 | Close open upvalues for registers `M[J]` and `n[J]` if entries exist in `a`; for each, save the current register value in the upvalue cell and remove the entry from `a`. | Close up to two tracked open upvalues. Unlike the return handlers, this body performs no `B`-range snapshot and does not return. | High for the state transition |
+| 183 | `v[n] = L * v[i]` | Multiply immediate operand `L[J]` by register value `v[i[J]]`; store the ordinary numeric product in `v[n[J]]`. No explicit modulo-2^32 reduction appears in this handler. | High |
+| 184 | `v[M](r, Q(v[i], 1, v[i].n))` | Call function in register `v[M[J]]` with immediate argument `r[J]` followed by all arguments unpacked from the packed table in `v[i[J]]`; discard the call's return values. | High |
+| 185 | `v[M] = r + v[i]` | Add immediate operand `r[J]` to register value `v[i[J]]`; store the result in `v[M[J]]`. | High |
+| 186 | `v[n] = k[M][i]` | Read immediate key `i[J]` from auxiliary table `k[M[J]]`; store the result in register `v[n[J]]`. | High for data flow; unresolved for the role of `k` |
 | 187 | `k[i][v[n]] = v[M]` | Write register value `v[M]` into auxiliary table `k[i]` at key `v[n]`. | High |
-
-|---:|---|---|---|
+| 188 | `v[n] = v[M](Q(v[i], 1, v[i].n))` | Call function in register `v[M[J]]` with all arguments unpacked from the packed table in `v[i[J]]`; store the first return value in register `v[n[J]]`. | High |
+| 189 | `v[M](v[i], v[n])` | Call function in register `v[M[J]]` with two register arguments, `v[i[J]]` and `v[n[J]]`; discard the call's return values. | High |
 ## Notes
 
 - Opcode 6 copies **from** the vararg list **into** the VM register array.

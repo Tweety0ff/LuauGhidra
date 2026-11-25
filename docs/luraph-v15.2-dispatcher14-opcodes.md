@@ -11,7 +11,7 @@ Names such as `v`, `S`, `i`, `M`, `n`, `U`, and `J` are VM internals:
 - `i`, `M`, `n`, `U`, `L`, `r`: parallel operand/immediate arrays; the handler determines which role each field has
 - `e`, `p`, `k`, `W`, `V`, `O`: auxiliary VM state/tables
 
-This is an evolving reverse-engineering note, not a claim that every listed opcode occurs in the payload. The dispatcher scanner previously reported **108 source-location groups**, but that structural count must not be confused with the number of opcode values used at runtime. The resolver and inventory generator have since been corrected to walk past local setup statements and to keep mixed mapped/unmapped groups unresolved. Regenerate the pending inventory after pulling the latest branch revision; older reports may incorrectly label unrelated opcode values as aliases.
+This is an evolving reverse-engineering note, not a claim that every listed opcode occurs in the payload. The source-location group count is a structural property of the current VM source and may change as the resolver is corrected. It must not be confused with the number of opcode values used at runtime. The resolver and inventory generator walk past local setup statements and keep mixed mapped/unmapped groups unresolved. Regenerate the pending inventory after pulling the latest branch revision; do not reuse counts from older reports.
 
 ## Decoded opcodes
 
@@ -94,6 +94,31 @@ This is an evolving reverse-engineering note, not a claim that every listed opco
 | 81 | `v[M], v[M+1] = v[i], r` | Copy register `v[i]` into register `M` and immediate operand `r` into the following register `M+1`. | High |
 | 82 | `v[i][L] = v[n]` | Write register value `v[n]` into the table held in register `v[i]`, using immediate key `L`. | High |
 | 83 | `v[M] = n - v[i]` | Subtract register value `v[i]` from immediate operand `n`; store the result in `v[M]`. Operand order matters. | High |
+| 84 | `v[i] = k[n][v[M]]` | Read key `v[M]` from auxiliary table/object `k[n]` and store the result in `v[i]`. The handler establishes the lookup but not the higher-level role of `k`. | High for data flow; unresolved for the role of `k` |
+| 85 | `v[i] = v[M] - n` | Subtract immediate operand `n` from register `v[M]`; store the result in `v[i]`. | High |
+| 86 | `v[n] = _(v[i](Q(v[M], 1, v[M].n)))` | Call function `v[i]` with the argument sequence extracted from packed argument table `v[M]` (using its `.n` count); pass the call result through helper `_` and store it in `v[n]`. The exact result-packing behavior of `_` is unresolved. | High for call/argument flow; unresolved for `_` |
+| 87 | Close tracked open upvalues in `a`, snapshot/copy pending captured register ranges tracked in `B`, then `return v[i](v[n], v[M])`. | Tail-call function `v[i]` with two register arguments (`v[n]`, `v[M]`) and return its results after upvalue/capture cleanup. The precise abstraction represented by `B` remains provisional. | High for call and cleanup effects |
+| 88 | `v[i] = (L * v[n]) mod 2^32` | Multiply immediate `L` by register `v[n]`, retaining the low 32 bits. The handler implements the product using 16-bit halves and helper shifts/combinations. | High |
+| 89 | `v[i][v[n]] = v[M]` | Write register value `v[M]` into the table held in `v[i]`, using register `v[n]` as the key. | High |
+| 90 | `v[n] = (v[M] > v[i])` | Compare two VM registers using greater-than and store the boolean result in `v[n]`. | High |
+| 91 | `v[M] = n ^ v[i]` | Raise immediate base `n` to the power held in register `v[i]`; store the result in `v[M]`. In Luau, `^` is exponentiation, not bitwise XOR. | High |
+| 92 | `J = (v[i] <= r) and J or M` | Keep the current PC when `v[i] <= r`; otherwise branch to immediate target `M` (branch condition `v[i] > r`). | High |
+| 93 | `J = v[M]` | Unconditional jump to the address held in register `v[M]`. | High |
+| 94 | `v[M] = A(v[n], i)` | Call helper `A` with register value `v[n]` and immediate operand `i`; store its result in `v[M]`. The semantic operation performed by `A` is not established by this handler alone. | High for data flow; unresolved for `A` |
+| 96 | `for x = M, i do v[x] = nil end` | Clear every VM register in the inclusive range from `M[J]` through `i[J]` (the loop performs no writes if the start exceeds the end). | High |
+| 97 | `h = i; v[h], v[h+1] = M, v[n]` | Load immediate operand `M` into register `i`, and copy register `v[n]` into the following register `i+1`. | High |
+| 98 | `v[i] = (v[M] == r)` | Compare register `v[M]` with immediate operand `r`; store the boolean equality result in `v[i]`. | High |
+| 100 | `v[M] = v[n] / v[i]` | Divide register `v[n]` by register `v[i]`; store the result in `v[M]`. | High |
+| 101 | `v[n] = (v[i] < M)` | Compare register `v[i]` with immediate operand `M`; store the boolean less-than result in `v[n]`. | High |
+| 102 | Reads/advances an encoded byte buffer in `H[4]`/`H[7]`, decodes a variable-length span, transforms the corresponding bytes in place using helpers `j`, `D`, `x`, `Y`, and `P`, then sets `i[J]=235`, `M[J]=80`, `n[J]=145`, and `S[J]=57`. | In-place byte-buffer decode/transform followed by rewriting the current instruction slot to opcode 57 (NOP) with replacement operands. The exact transformation algorithm is unresolved; do not assign it a cipher name without resolving the helpers. | High for buffer mutation and instruction rewrite; unresolved for algorithm |
+| 103 | `h = i; local ok, value = q(); if ok then v[h] = value; J = n else J = M end; R, d = ok, value` | Call helper `q()` and branch on its first result. If truthy, store the second result in register `i` and jump to `n`; otherwise jump to `M`. Also copy the returned pair into interpreter state `R,d`. The higher-level purpose of `q()` is not established here. | High for control/data flow; unresolved for `q`'s role |
+| 105 | `J = (L ~= v[n]) and i or J` | Branch to immediate target `i` when register `v[n]` differs from immediate `L`; otherwise keep the current PC. | High |
+| 107 | `v[n] = (v[M] < v[i])` | Compare registers `v[M]` and `v[i]` using less-than; store the boolean result in `v[n]`. | High |
+| 108 | `h = k[n]; h[5][h[4]] = L` | Resolve the capture/upvalue cell referenced by `k[n]` and assign immediate value `L` to that cell's stored value. This is a write to the captured variable itself, unlike opcode 60 which indexes into a table held by the captured value. | High for the observed dereference/write; Medium for the upvalue label |
+| 109 | `v[n] = l(v[M])` | Apply helper `l` to register value `v[M]` and store the result in `v[n]`. The meaning of `l` is unresolved from this handler alone. | High for data flow; unresolved for `l` |
+| 110 | `J = (i < v[M]) and J or n` | Keep the current PC when immediate `i` is less than register `v[M]`; otherwise branch to `n` (branch condition `i >= v[M]`). | High |
+| 111 | `v[i] = v[n] ^ M` | Raise register value `v[n]` to immediate exponent `M`; store the result in `v[i]`. In Luau, `^` is exponentiation, not bitwise XOR. | High |
+| 112 | `v[M], v[i] = v[n]()` | Call function in register `v[n]` with no arguments and assign its first two return values to registers `M` and `i`, respectively. | High |
 | 47 | `v[M] = (i * v[n]) mod 2^32` | Low 32 bits of immediate × register multiplication. | High |
 | 48 | `v[M] = v[n] - v[i]` | Register subtraction. | High |
 | 56 | `v[n] = (v[i] * v[M]) mod 2^32` | Low 32 bits of register × register multiplication. | High |

@@ -4949,6 +4949,15 @@ if CFG.spin then
                 end
                 idle += 1
                 if idle >= CFG.spin then
+                        if not ABORT_REASON then
+                                -- A tamper response that scrambles tables instead of
+                                -- writing out-of-range values into a buffer never reaches
+                                -- noteTrigger(). The function entered last is the one
+                                -- spinning: remember it so the end of the run can report
+                                -- it as the trap (the driver then reruns it disabled).
+                                local ent = E.__ENT
+                                if ent and ent.n > 0 then CHAIN.spinTrigger = ent[ent.n % 64] end
+                        end
                         ABORT_REASON = ABORT_REASON or "endless loop in the script's own code (no environment access)"
                         checkBudget()
                 end
@@ -6248,6 +6257,7 @@ if R.rawget(E, "__TR") then
                 R.print(MARK .. "TR " .. R.tostring(tr[(i - 1) % N + 1]))
         end
 end
+if not TRIGGER and CHAIN.spinTrigger and CFG.devirt then TRIGGER = CHAIN.spinTrigger end
 if TRIGGER then R.print(MARK .. "TRIGGER " .. TRIGGER) end
 for _, line in R.ipairs(P2D_LOG) do R.print(MARK .. "P2D " .. line) end
 if CFG.call_log then CHAIN.dumpCallLog() end

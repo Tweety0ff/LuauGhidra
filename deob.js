@@ -48,12 +48,21 @@ function parseArgs(argv) {
     else if (a === '--devirt-rounds') { args.devirtRounds = parseInt(argv[++i], 10); }
     else if (a === '--executor') { args.executor = argv[++i]; }
     else if (a === '--input-text') { args.inputText = argv[++i]; }
+    else if (a === '--game-id' || a === '--place-id') {
+      // game.GameId / game.PlaceId the script sees. Game-locked Luraph scripts
+      // mix GameId into their payload key, so the real values are needed to
+      // decrypt (print(game.GameId, game.PlaceId) in the game).
+      const id = Number(argv[++i]);
+      if (!Number.isFinite(id)) { console.error(`[!] ${a} needs a number`); process.exit(2); }
+      args.cfgJson = args.cfgJson || {};
+      args.cfgJson[a === '--game-id' ? '__superz_game_id' : '__superz_place_id'] = id;
+    }
     else if (a === '--cfg-json') {
       // extra harness CFG as inline JSON or '@file.json' (e.g. readfile_map,
       // http_map, real_json) -- merged into the cfg of every run
       let spec = argv[++i];
       if (spec.startsWith('@')) spec = fs.readFileSync(spec.slice(1), 'utf8');
-      args.cfgJson = JSON.parse(spec);
+      args.cfgJson = Object.assign(args.cfgJson || {}, JSON.parse(spec));
     }
     else if (!a.startsWith('-')) { args.inputs.push(a); }
   }
@@ -219,7 +228,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (args.inputs.length === 0) {
-    console.error('Usage: node deob.js <input.lua | folder> [more_files_or_folders...] [-o <output.lua>] [--plugin <name>] [--no-devirt] [--debug] [--detect]');
+    console.error('Usage: node deob.js <input.lua | folder> [more_files_or_folders...] [-o <output.lua>] [--plugin <name>] [--no-devirt] [--debug] [--detect] [--game-id N] [--place-id N]');
     process.exit(2);
   }
 

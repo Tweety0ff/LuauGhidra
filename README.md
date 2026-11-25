@@ -31,6 +31,7 @@ Useful options:
 - `--no-devirt` — produce a fast behaviour trace without VM lifting
 - `--debug` — keep intermediate trace and analysis files
 - `--detect` — detect the obfuscator and print the result without deobfuscating
+- `--game-id N`, `--place-id N` — the `game.GameId` / `game.PlaceId` the script sees (game-locked scripts decrypt only with the real values: run `print(game.GameId, game.PlaceId)` in the game)
 - `--cfg-json '{"key": value}'` — pass additional sandbox configuration
 
 The input can be a `.lua` or `.luau` file. Without an explicit output path, the result is written to an `output/` directory beside the input.

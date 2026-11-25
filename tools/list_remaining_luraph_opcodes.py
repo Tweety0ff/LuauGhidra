@@ -34,6 +34,8 @@ import vmmap  # noqa: E402
 # report; never infer that its unmapped values are aliases from a partial hit.
 MAPPED_OPCODES = {
     *range(0, 27),
+    *range(27, 47),
+    *range(49, 54),
     47, 48,
     56, 57, 58,
     62, 70,
